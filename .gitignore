@@ -6,3 +6,6 @@
 *.dylib
 *.test
 *.out
+*.db
+
+/node_modules
