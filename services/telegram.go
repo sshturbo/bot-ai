@@ -14,30 +14,12 @@ import (
 
 	"bot-ai/config"
 	"bot-ai/database"
+	"bot-ai/models"
 )
 
-type User struct {
-	ID        int64  `json:"id"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name,omitempty"`
-	UserName  string `json:"username,omitempty"`
-}
-
-type Chat struct {
-	ID   int64  `json:"id"`
-	Type string `json:"type"`
-}
-
-type Message struct {
-	MessageID int    `json:"message_id"`
-	From      *User  `json:"from"`
-	Chat      *Chat  `json:"chat"`
-	Text      string `json:"text"`
-}
-
 type Update struct {
-	UpdateID int      `json:"update_id"`
-	Message  *Message `json:"message"`
+	UpdateID int                     `json:"update_id"`
+	Message  *models.TelegramMessage `json:"message"`
 }
 
 type WebAppInfo struct {
@@ -75,13 +57,13 @@ type TelegramService struct {
 	limiter *rate.Limiter
 	config  *config.Config
 	db      *database.Database
-	gemini  *GeminiService
-	botInfo *User
+	ai      models.AIService
+	botInfo *models.TelegramUser
 }
 
-func NewTelegramService(cfg *config.Config, db *database.Database, gemini *GeminiService) (*TelegramService, error) {
+func NewTelegramService(cfg *config.Config, db *database.Database, ai models.AIService) (*TelegramService, error) {
 	client := &http.Client{
-		Timeout: time.Second * 60, // Aumentando o timeout para 60 segundos
+		Timeout: time.Second * 60,
 	}
 
 	service := &TelegramService{
@@ -91,7 +73,7 @@ func NewTelegramService(cfg *config.Config, db *database.Database, gemini *Gemin
 		limiter: rate.NewLimiter(rate.Every(time.Second), 30),
 		config:  cfg,
 		db:      db,
-		gemini:  gemini,
+		ai:      ai,
 	}
 
 	// Obtém informações do bot
@@ -104,13 +86,13 @@ func NewTelegramService(cfg *config.Config, db *database.Database, gemini *Gemin
 	return service, nil
 }
 
-func (s *TelegramService) getMe() (*User, error) {
+func (s *TelegramService) getMe() (*models.TelegramUser, error) {
 	resp, err := s.makeRequest("getMe", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var user User
+	var user models.TelegramUser
 	if err := json.Unmarshal(resp.Result, &user); err != nil {
 		return nil, err
 	}
@@ -235,7 +217,7 @@ func (s *TelegramService) formatPreview(answer string, maxLength int) string {
 	return answer[:lastSpace] + "..."
 }
 
-func (s *TelegramService) sendResponse(msg *Message, answer string) {
+func (s *TelegramService) sendResponse(msg *models.TelegramMessage, answer string) {
 	userName := msg.From.UserName
 	if userName == "" {
 		userName = msg.From.FirstName
@@ -316,7 +298,7 @@ func (s *TelegramService) handleUpdate(update Update) {
 	// Envia ação de "digitando"
 	s.sendChatAction(update.Message.Chat.ID, "typing")
 
-	answer, err := s.gemini.AskWithRetry(question)
+	answer, err := s.ai.AskWithRetry(question)
 	if err != nil {
 		log.Printf("Erro ao obter resposta: %v", err)
 		s.sendErrorMessage(update.Message)
@@ -338,12 +320,12 @@ func (s *TelegramService) sendChatAction(chatID int64, action string) {
 	}
 }
 
-func (s *TelegramService) shouldProcessMessage(msg *Message) bool {
+func (s *TelegramService) shouldProcessMessage(msg *models.TelegramMessage) bool {
 	return msg.Chat.Type == "private" ||
 		strings.Contains(msg.Text, "@"+s.botInfo.UserName)
 }
 
-func (s *TelegramService) extractQuestion(msg *Message) string {
+func (s *TelegramService) extractQuestion(msg *models.TelegramMessage) string {
 	question := msg.Text
 	if msg.Chat.Type != "private" {
 		question = strings.ReplaceAll(question, "@"+s.botInfo.UserName, "")
@@ -351,7 +333,7 @@ func (s *TelegramService) extractQuestion(msg *Message) string {
 	return strings.TrimSpace(question)
 }
 
-func (s *TelegramService) sendErrorMessage(msg *Message) {
+func (s *TelegramService) sendErrorMessage(msg *models.TelegramMessage) {
 	payload := SendMessageRequest{
 		ChatID:           msg.Chat.ID,
 		Text:             "Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente mais tarde.",

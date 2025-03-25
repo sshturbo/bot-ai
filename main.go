@@ -2,11 +2,36 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	"bot-ai/config"
 	"bot-ai/database"
+	"bot-ai/models"
 	"bot-ai/services"
 )
+
+func initializeAIService(cfg *config.Config) models.AIService {
+	// Verifica qual serviço deve ser usado com base na configuração
+	switch cfg.AIService {
+	case "azure":
+		if strings.TrimSpace(cfg.AzureOpenAIKey) == "" {
+			log.Fatal("Serviço Azure OpenAI selecionado mas AZURE_OPENAI_API_KEY não está configurada")
+		}
+		log.Println("Usando Azure OpenAI como serviço de IA")
+		return services.NewAzureOpenAIService(cfg)
+
+	case "google":
+		if strings.TrimSpace(cfg.GeminiApiKey) == "" {
+			log.Fatal("Serviço Google Gemini selecionado mas GEMINI_API_KEY não está configurada")
+		}
+		log.Println("Usando Google Gemini como serviço de IA")
+		return services.NewGeminiService(cfg)
+
+	default:
+		log.Fatalf("Serviço de IA '%s' não suportado. Use 'google' ou 'azure' na variável AI_SERVICE", cfg.AIService)
+		return nil
+	}
+}
 
 func main() {
 	// Carregar configurações
@@ -22,14 +47,16 @@ func main() {
 	// Configurar limpeza automática de mensagens antigas
 	db.ScheduleCleanup(cfg.CleanupInterval, cfg.MessageRetention)
 
-	// Inicializar serviços
-	geminiService := services.NewGeminiService(cfg)
+	// Inicializar o serviço de IA apropriado
+	aiService := initializeAIService(cfg)
 
-	telegramService, err := services.NewTelegramService(cfg, db, geminiService)
+	// Inicializar serviço do Telegram
+	telegramService, err := services.NewTelegramService(cfg, db, aiService)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// Inicializar servidor HTTP
 	httpServer := services.NewHTTPServer(cfg, db)
 
 	// Iniciar servidor HTTP em uma goroutine
