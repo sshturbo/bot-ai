@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useConfig } from '@/hooks/useConfig';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -93,6 +94,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
 
 export default function MessagePage() {
   const { hash } = useParams();
+  const { config, loading: configLoading } = useConfig();
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -113,6 +115,11 @@ export default function MessagePage() {
       setTg(webApp);
     }
 
+    // Só faz a requisição se a configuração estiver carregada
+    if (configLoading || !config) {
+      return;
+    }
+
     const fetchMessage = async () => {
       try {
         setLoading(true);
@@ -126,13 +133,12 @@ export default function MessagePage() {
           headers['X-Telegram-Init-Data'] = webApp.initData;
         }
 
-        // Usa a variável de ambiente VITE_API_URL ou constrói a URL base
-        const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+        const baseUrl = config.apiUrl;
         console.log('Tentando acessar API em:', `${baseUrl}/api/messages/${hash}`);
         
         const response = await fetch(`${baseUrl}/api/messages/${hash}`, { 
           headers,
-          mode: 'cors' // Força o modo CORS
+          mode: 'cors'
         });
         
         if (!response.ok) {
@@ -155,7 +161,7 @@ export default function MessagePage() {
     };
 
     fetchMessage();
-  }, [hash]);
+  }, [hash, config, configLoading]);
 
   // Aplica o tema do Telegram
   useEffect(() => {
