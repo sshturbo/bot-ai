@@ -126,10 +126,17 @@ export default function MessagePage() {
           headers['X-Telegram-Init-Data'] = webApp.initData;
         }
 
-        const response = await fetch(`/api/messages/${hash}`, { headers });
+        // Usa a variável de ambiente VITE_API_URL ou constrói a URL base
+        const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+        console.log('Tentando acessar API em:', `${baseUrl}/api/messages/${hash}`);
+        
+        const response = await fetch(`${baseUrl}/api/messages/${hash}`, { 
+          headers,
+          mode: 'cors' // Força o modo CORS
+        });
         
         if (!response.ok) {
-          throw new Error('Erro ao carregar mensagem');
+          throw new Error(`Erro ao carregar mensagem: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();

@@ -15,6 +15,7 @@ type Config struct {
 	WebAppURL     string
 	Debug         bool
 	HTTPTimeout   time.Duration
+	ServerAddr    string // Alterado para ServerAddr em vez de HTTPPort
 	MaxRetries    int
 	RetryDelay    time.Duration
 
@@ -36,11 +37,15 @@ func LoadConfig() *Config {
 	cleanupHours := getEnvAsInt("CLEANUP_INTERVAL_HOURS", 24)
 	cleanupInterval := time.Duration(cleanupHours) * time.Hour
 
+	// Obtém o endereço do servidor (padrão: "localhost:8080")
+	serverAddr := getEnvWithDefault("SERVER_ADDR", "localhost:8080")
+
 	return &Config{
 		TelegramToken:    os.Getenv("TELEGRAM_BOT_TOKEN"),
 		GeminiApiKey:     os.Getenv("GEMINI_API_KEY"),
 		WebAppURL:        os.Getenv("WEBAPP_URL"),
 		HTTPTimeout:      30 * time.Second,
+		ServerAddr:       serverAddr,
 		MaxRetries:       3,
 		RetryDelay:       2 * time.Second,
 		MessageRetention: messageRetention,
@@ -62,5 +67,15 @@ func getEnvAsInt(name string, defaultValue int) int {
 		return defaultValue
 	}
 
+	return value
+}
+
+// getEnvWithDefault obtém uma variável de ambiente ou retorna o valor padrão
+// caso a variável não exista
+func getEnvWithDefault(name string, defaultValue string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
 	return value
 }

@@ -26,16 +26,35 @@ func NewHTTPServer(cfg *config.Config, db *database.Database) *HTTPServer {
 	}
 }
 
+// Middleware CORS para lidar com requisições cross-origin
+func (s *HTTPServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Configura cabeçalhos CORS
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
+		w.Header().Set("Access-Control-Max-Age", "86400") // 24 horas
+
+		// Trata requisições OPTIONS (preflight)
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 func (s *HTTPServer) Start() {
 	// Desabilitando temporariamente o middleware para debug
 	// http.HandleFunc("/api/messages/", s.authMiddleware.Middleware(s.handleGetMessage))
-	http.HandleFunc("/api/messages/", s.handleGetMessage)
+	http.HandleFunc("/api/messages/", s.corsMiddleware(s.handleGetMessage))
 
 	// Frontend static files handler
-	http.HandleFunc("/", s.handleFrontend)
+	http.HandleFunc("/", s.corsMiddleware(s.handleFrontend))
 
-	addr := ":8080"
-	log.Printf("Servidor HTTP iniciado em http://localhost%s", addr)
+	addr := s.config.ServerAddr
+	log.Printf("Servidor HTTP iniciado em http://%s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
@@ -61,7 +80,7 @@ func (s *HTTPServer) handleFrontend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPServer) handleGetMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodOptions {
 		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
 		return
 	}

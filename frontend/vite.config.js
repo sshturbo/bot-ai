@@ -2,12 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from "path"
 
+// Obtém a URL da API do ambiente ou usa o padrão para desenvolvimento
+const apiUrl = process.env.VITE_API_URL || 'http://localhost:8443'
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: apiUrl,
         changeOrigin: true
       }
     },
@@ -18,4 +21,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Define variáveis de ambiente que estarão disponíveis no cliente
+  define: {
+    'process.env.VITE_API_URL': JSON.stringify(apiUrl)
+  }
 })
