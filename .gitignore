@@ -6,7 +6,8 @@
 *.dylib
 *.test
 *.out
-*.db
+
+messages.db
 
 /node_modules
 /dist
