@@ -1,4 +1,7 @@
+# Arquivos de configuração
 .env
+
+# Arquivos compilados
 *.exe
 *.exe~
 *.dll
@@ -7,9 +10,17 @@
 *.test
 *.out
 
+# Banco de dados
 messages.db
 
+# Node.js
 /node_modules
 /dist
 /build
 /frontend/node_modules
+/frontend/dist
+
+# Outros
+.DS_Store
+.vscode/
+Thumbs.db
