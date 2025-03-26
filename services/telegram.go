@@ -275,6 +275,21 @@ func (s *TelegramService) sendResponse(msg *models.TelegramMessage, answer strin
 	}
 }
 
+// keepTypingStatus mantém o status de "digitando" ativo até que o canal done seja fechado
+func (s *TelegramService) keepTypingStatus(chatID int64, done chan struct{}) {
+	ticker := time.NewTicker(4 * time.Second) // Telegram requer atualização a cada 5s, usamos 4s para garantir
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			s.sendChatAction(chatID, "typing")
+		}
+	}
+}
+
 func (s *TelegramService) handleUpdate(update Update) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -290,15 +305,39 @@ func (s *TelegramService) handleUpdate(update Update) {
 		return
 	}
 
+	// Processa comando /newchat
+	if update.Message.Text == "/newchat" {
+		err := s.ai.NewChat(update.Message.From.ID)
+		if err != nil {
+			log.Printf("Erro ao criar novo chat: %v", err)
+			s.sendErrorMessage(update.Message)
+			return
+		}
+
+		s.sendResponse(update.Message, "✨ Novo chat iniciado! Pode começar a conversar.")
+		return
+	}
+
 	question := s.extractQuestion(update.Message)
 	if question == "" {
 		return
 	}
 
-	// Envia ação de "digitando"
+	// Criar canal para controlar o status de digitação
+	typingDone := make(chan struct{})
+
+	// Iniciar goroutine para manter o status de digitação
+	go s.keepTypingStatus(update.Message.Chat.ID, typingDone)
+
+	// Enviar ação de "digitando" inicial
 	s.sendChatAction(update.Message.Chat.ID, "typing")
 
-	answer, err := s.ai.AskWithRetry(question)
+	// Obter resposta da IA, agora passando o ID do usuário
+	answer, err := s.ai.AskWithRetry(update.Message.From.ID, question)
+
+	// Fechar o canal para parar o status de digitação
+	close(typingDone)
+
 	if err != nil {
 		log.Printf("Erro ao obter resposta: %v", err)
 		s.sendErrorMessage(update.Message)

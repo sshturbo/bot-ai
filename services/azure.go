@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"bot-ai/config"
+	"bot-ai/database"
 	"bot-ai/models"
 )
 
 type AzureOpenAIService struct {
 	client *http.Client
 	config *config.Config
+	db     *database.Database
 }
 
 type AzureRequest struct {
@@ -33,19 +35,20 @@ type AzureResponse struct {
 	} `json:"choices"`
 }
 
-func NewAzureOpenAIService(cfg *config.Config) models.AIService {
+func NewAzureOpenAIService(cfg *config.Config, db *database.Database) models.AIService {
 	return &AzureOpenAIService{
 		client: &http.Client{
 			Timeout: cfg.HTTPTimeout,
 		},
 		config: cfg,
+		db:     db,
 	}
 }
 
-func (s *AzureOpenAIService) AskWithRetry(question string) (string, error) {
+func (s *AzureOpenAIService) AskWithRetry(userID int64, question string) (string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= s.config.MaxRetries; attempt++ {
-		answer, err := s.Ask(question)
+		answer, err := s.Ask(userID, question)
 		if err == nil {
 			return answer, nil
 		}
@@ -58,20 +61,47 @@ func (s *AzureOpenAIService) AskWithRetry(question string) (string, error) {
 	return "", fmt.Errorf("todas as tentativas falharam: %v", lastErr)
 }
 
-func (s *AzureOpenAIService) Ask(question string) (string, error) {
+func (s *AzureOpenAIService) Ask(userID int64, question string) (string, error) {
+	// Busca ou cria um chat ativo para o usuário
+	chat, err := s.db.GetActiveChat(userID)
+	if err != nil {
+		return "", fmt.Errorf("erro ao buscar chat ativo: %w", err)
+	}
+
+	if chat == nil {
+		chat, err = s.db.CreateNewChat(userID)
+		if err != nil {
+			return "", fmt.Errorf("erro ao criar novo chat: %w", err)
+		}
+	}
+
+	// Recupera o histórico de mensagens
+	messages, err := s.db.GetChatMessages(chat.ID)
+	if err != nil {
+		return "", fmt.Errorf("erro ao recuperar histórico: %w", err)
+	}
+
+	// Prepara a requisição com o histórico
 	url := fmt.Sprintf("%s/chat/completions", s.config.AzureOpenAIEndpoint)
 
-	reqBody := AzureRequest{
-		Messages: []models.ChatMessage{
-			{
-				Role:    "system",
-				Content: "You are a helpful assistant.",
-			},
-			{
-				Role:    "user",
-				Content: question,
-			},
+	reqMessages := []models.ChatMessage{
+		{
+			Role:    "system",
+			Content: "You are a helpful assistant.",
 		},
+	}
+
+	// Adiciona o histórico de mensagens
+	reqMessages = append(reqMessages, messages...)
+
+	// Adiciona a pergunta atual
+	reqMessages = append(reqMessages, models.ChatMessage{
+		Role:    "user",
+		Content: question,
+	})
+
+	reqBody := AzureRequest{
+		Messages:    reqMessages,
 		Model:       s.config.AzureOpenAIModel,
 		MaxTokens:   s.config.AzureOpenAIMaxTokens,
 		Temperature: s.config.AzureOpenAITemperature,
@@ -82,9 +112,7 @@ func (s *AzureOpenAIService) Ask(question string) (string, error) {
 		return "", fmt.Errorf("erro ao serializar requisição: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.HTTPTimeout)
-	defer cancel()
-
+	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar requisição: %w", err)
@@ -117,5 +145,23 @@ func (s *AzureOpenAIService) Ask(question string) (string, error) {
 		return "", fmt.Errorf("resposta vazia do Azure OpenAI")
 	}
 
-	return azureResp.Choices[0].Message.Content, nil
+	answer := azureResp.Choices[0].Message.Content
+
+	// Salva a pergunta e a resposta no histórico
+	if err := s.db.AddMessageToChat(chat.ID, "user", question); err != nil {
+		return "", fmt.Errorf("erro ao salvar pergunta no histórico: %w", err)
+	}
+	if err := s.db.AddMessageToChat(chat.ID, "assistant", answer); err != nil {
+		return "", fmt.Errorf("erro ao salvar resposta no histórico: %w", err)
+	}
+
+	return answer, nil
+}
+
+func (s *AzureOpenAIService) NewChat(userID int64) error {
+	_, err := s.db.CreateNewChat(userID)
+	if err != nil {
+		return fmt.Errorf("erro ao criar novo chat: %w", err)
+	}
+	return nil
 }

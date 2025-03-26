@@ -10,7 +10,7 @@ import (
 	"bot-ai/services"
 )
 
-func initializeAIService(cfg *config.Config) models.AIService {
+func initializeAIService(cfg *config.Config, db *database.Database) models.AIService {
 	// Verifica qual serviço deve ser usado com base na configuração
 	switch cfg.AIService {
 	case "azure":
@@ -18,14 +18,14 @@ func initializeAIService(cfg *config.Config) models.AIService {
 			log.Fatal("Serviço Azure OpenAI selecionado mas AZURE_OPENAI_API_KEY não está configurada")
 		}
 		log.Println("Usando Azure OpenAI como serviço de IA")
-		return services.NewAzureOpenAIService(cfg)
+		return services.NewAzureOpenAIService(cfg, db)
 
 	case "google":
 		if strings.TrimSpace(cfg.GeminiApiKey) == "" {
 			log.Fatal("Serviço Google Gemini selecionado mas GEMINI_API_KEY não está configurada")
 		}
 		log.Println("Usando Google Gemini como serviço de IA")
-		return services.NewGeminiService(cfg)
+		return services.NewGeminiService(cfg, db)
 
 	default:
 		log.Fatalf("Serviço de IA '%s' não suportado. Use 'google' ou 'azure' na variável AI_SERVICE", cfg.AIService)
@@ -48,7 +48,7 @@ func main() {
 	db.ScheduleCleanup(cfg.CleanupInterval, cfg.MessageRetention)
 
 	// Inicializar o serviço de IA apropriado
-	aiService := initializeAIService(cfg)
+	aiService := initializeAIService(cfg, db)
 
 	// Inicializar serviço do Telegram
 	telegramService, err := services.NewTelegramService(cfg, db, aiService)

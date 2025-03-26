@@ -1,10 +1,13 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // AIService interface comum para serviços de IA
 type AIService interface {
-	AskWithRetry(question string) (string, error)
+	AskWithRetry(userID int64, question string) (string, error)
+	NewChat(userID int64) error
 }
 
 // Message representa uma mensagem armazenada no banco de dados
@@ -13,6 +16,24 @@ type Message struct {
 	Hash      string    `json:"hash"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ChatHistory representa o histórico de chat de um usuário
+type ChatHistory struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ChatMessage representa uma mensagem no histórico
+type ChatMessage struct {
+	ID            int64     `json:"id"`
+	ChatHistoryID int64     `json:"chat_history_id"`
+	Role          string    `json:"role"`
+	Content       string    `json:"content"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // TelegramMessage representa uma mensagem do Telegram
@@ -37,10 +58,12 @@ type TelegramChat struct {
 	Type string `json:"type"`
 }
 
-// ChatMessage representa uma mensagem para APIs de chat (Gemini, Azure)
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+// ChatHistoryResponse representa a resposta da API com o histórico
+type ChatHistoryResponse struct {
+	ID        int64         `json:"id"`
+	IsActive  bool          `json:"is_active"`
+	Messages  []ChatMessage `json:"messages"`
+	CreatedAt time.Time     `json:"created_at"`
 }
 
 // GeminiRequest representa a estrutura correta para a API do Gemini
