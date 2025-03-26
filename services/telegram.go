@@ -249,6 +249,12 @@ func (s *TelegramService) handleUpdate(update Update) {
 		return
 	}
 
+	// Verifica se é um comando /start simples e trata separadamente
+	if update.Message.Text == "/start" {
+		s.sendWelcomeMessage(update.Message)
+		return
+	}
+
 	if !s.shouldProcessMessage(update.Message) {
 		return
 	}
@@ -440,7 +446,7 @@ func (s *TelegramService) handleStartCommand(msg *models.TelegramMessage) {
 
 	// Envia uma prévia da mensagem para incentivar a abertura do mini app
 	preview := s.formatPreview(message.Content, 100)
-	text := fmt.Sprintf("📝 *Resposta encontrada\\!*\n\n%s\n\n👆 _Toque no botão acima para ver a resposta completa e continuar a conversa_", s.escapeMarkdown(preview))
+	text := fmt.Sprintf("📝 *Resposta encontrada\\!*\n\n%s\n\n _Toque no botão abaixo para ver a resposta completa_", s.escapeMarkdown(preview))
 
 	payload := SendMessageRequest{
 		ChatID:      msg.Chat.ID,
@@ -469,7 +475,7 @@ func (s *TelegramService) sendWelcomeMessage(msg *models.TelegramMessage) {
 	webAppURL := s.config.WebAppURL
 
 	button := InlineKeyboardButton{
-		Text: "📱 Abrir Miniapp",
+		Text: "📱 Abrir historioco",
 		WebApp: &WebAppInfo{
 			URL: webAppURL,
 		},
