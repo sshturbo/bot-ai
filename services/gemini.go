@@ -42,12 +42,12 @@ func NewGeminiService(cfg *config.Config, db *database.Database) models.AIServic
 	}
 }
 
-func (s *GeminiService) AskWithRetry(userID int64, question string) (string, error) {
+func (s *GeminiService) AskWithRetry(userID int64, question string) (string, string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= s.config.MaxRetries; attempt++ {
-		answer, err := s.Ask(userID, question)
+		answer, hash, err := s.Ask(userID, question)
 		if err == nil {
-			return answer, nil
+			return answer, hash, nil
 		}
 
 		lastErr = err
@@ -55,69 +55,76 @@ func (s *GeminiService) AskWithRetry(userID int64, question string) (string, err
 			time.Sleep(s.config.RetryDelay)
 		}
 	}
-	return "", fmt.Errorf("todas as tentativas falharam: %v", lastErr)
+	return "", "", fmt.Errorf("todas as tentativas falharam: %v", lastErr)
 }
 
-func (s *GeminiService) Ask(userID int64, question string) (string, error) {
+func (s *GeminiService) Ask(userID int64, question string) (string, string, error) {
 	ctx := context.Background()
 
 	// Busca o chat ativo do usuário
 	chat, err := s.db.GetActiveChat(userID)
 	if err != nil {
-		return "", fmt.Errorf("erro ao buscar chat ativo: %w", err)
+		return "", "", fmt.Errorf("erro ao buscar chat ativo: %w", err)
 	}
 
-	// Se não houver chat ativo, cria um novo
+	// Se não houver nenhum chat, cria um novo
 	if chat == nil {
 		chat, err = s.db.CreateNewChat(userID)
 		if err != nil {
-			return "", fmt.Errorf("erro ao criar novo chat: %w", err)
+			return "", "", fmt.Errorf("erro ao criar novo chat: %w", err)
 		}
 	}
 
 	// Recupera o histórico de mensagens
 	messages, err := s.db.GetChatMessages(chat.ID)
 	if err != nil {
-		return "", fmt.Errorf("erro ao recuperar histórico: %w", err)
+		return "", "", fmt.Errorf("erro ao recuperar histórico: %w", err)
 	}
 
 	// Prepara o histórico para o Gemini
 	cs := s.model.StartChat()
 	for _, msg := range messages {
+		// Mapeia os roles do nosso sistema para os roles aceitos pelo Gemini
+		role := "user"
+		if msg.Role == "assistant" {
+			role = "model"
+		}
+
 		cs.History = append(cs.History, &genai.Content{
-			Parts: []genai.Part{
-				genai.Text(msg.Content),
-			},
-			Role: msg.Role,
+			Role:  role,
+			Parts: []genai.Part{genai.Text(msg.Content)},
 		})
 	}
 
-	// Envia a pergunta
+	// Adiciona a nova pergunta ao histórico
+	if err := s.db.AddMessageToChat(chat.ID, "user", question); err != nil {
+		return "", "", fmt.Errorf("erro ao adicionar pergunta ao histórico: %w", err)
+	}
+
+	// Envia a pergunta para o Gemini
 	resp, err := cs.SendMessage(ctx, genai.Text(question))
 	if err != nil {
-		return "", fmt.Errorf("erro ao gerar conteúdo: %w", err)
+		return "", "", fmt.Errorf("erro ao obter resposta: %w", err)
 	}
 
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("resposta vazia do Gemini")
+	answer := resp.Candidates[0].Content.Parts[0].(genai.Text)
+
+	// Salva a resposta no banco
+	hash, err := s.db.SaveMessage(string(answer))
+	if err != nil {
+		return "", "", fmt.Errorf("erro ao salvar resposta: %w", err)
 	}
 
-	answer := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
-
-	// Salva a pergunta e a resposta no histórico
-	if err := s.db.AddMessageToChat(chat.ID, "user", question); err != nil {
-		return "", fmt.Errorf("erro ao salvar pergunta no histórico: %w", err)
-	}
-	if err := s.db.AddMessageToChat(chat.ID, "model", answer); err != nil {
-		return "", fmt.Errorf("erro ao salvar resposta no histórico: %w", err)
+	// Adiciona a resposta ao histórico do chat
+	if err := s.db.AddMessageToChatWithExistingHash(chat.ID, "assistant", string(answer), hash); err != nil {
+		return "", "", fmt.Errorf("erro ao adicionar resposta ao histórico: %w", err)
 	}
 
-	return answer, nil
+	return string(answer), hash, nil
 }
 
 func (s *GeminiService) NewChat(userID int64) error {
-	_, err := s.db.CreateNewChat(userID)
-	if err != nil {
+	if err := s.db.NewChat(userID); err != nil {
 		return fmt.Errorf("erro ao criar novo chat: %w", err)
 	}
 	return nil

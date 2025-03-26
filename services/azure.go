@@ -45,12 +45,12 @@ func NewAzureOpenAIService(cfg *config.Config, db *database.Database) models.AIS
 	}
 }
 
-func (s *AzureOpenAIService) AskWithRetry(userID int64, question string) (string, error) {
+func (s *AzureOpenAIService) AskWithRetry(userID int64, question string) (string, string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= s.config.MaxRetries; attempt++ {
-		answer, err := s.Ask(userID, question)
+		answer, hash, err := s.Ask(userID, question)
 		if err == nil {
-			return answer, nil
+			return answer, hash, nil
 		}
 
 		lastErr = err
@@ -58,27 +58,27 @@ func (s *AzureOpenAIService) AskWithRetry(userID int64, question string) (string
 			time.Sleep(s.config.RetryDelay)
 		}
 	}
-	return "", fmt.Errorf("todas as tentativas falharam: %v", lastErr)
+	return "", "", fmt.Errorf("todas as tentativas falharam: %v", lastErr)
 }
 
-func (s *AzureOpenAIService) Ask(userID int64, question string) (string, error) {
+func (s *AzureOpenAIService) Ask(userID int64, question string) (string, string, error) {
 	// Busca ou cria um chat ativo para o usuário
 	chat, err := s.db.GetActiveChat(userID)
 	if err != nil {
-		return "", fmt.Errorf("erro ao buscar chat ativo: %w", err)
+		return "", "", fmt.Errorf("erro ao buscar chat ativo: %w", err)
 	}
 
 	if chat == nil {
 		chat, err = s.db.CreateNewChat(userID)
 		if err != nil {
-			return "", fmt.Errorf("erro ao criar novo chat: %w", err)
+			return "", "", fmt.Errorf("erro ao criar novo chat: %w", err)
 		}
 	}
 
 	// Recupera o histórico de mensagens
 	messages, err := s.db.GetChatMessages(chat.ID)
 	if err != nil {
-		return "", fmt.Errorf("erro ao recuperar histórico: %w", err)
+		return "", "", fmt.Errorf("erro ao recuperar histórico: %w", err)
 	}
 
 	// Prepara a requisição com o histórico
@@ -109,13 +109,13 @@ func (s *AzureOpenAIService) Ask(userID int64, question string) (string, error) 
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("erro ao serializar requisição: %w", err)
+		return "", "", fmt.Errorf("erro ao serializar requisição: %w", err)
 	}
 
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("erro ao criar requisição: %w", err)
+		return "", "", fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -123,44 +123,51 @@ func (s *AzureOpenAIService) Ask(userID int64, question string) (string, error) 
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("erro na requisição HTTP: %w", err)
+		return "", "", fmt.Errorf("erro na requisição HTTP: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("erro ao ler resposta: %w", err)
+		return "", "", fmt.Errorf("erro ao ler resposta: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
+		return "", "", fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var azureResp AzureResponse
 	if err := json.Unmarshal(body, &azureResp); err != nil {
-		return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
+		return "", "", fmt.Errorf("erro ao decodificar resposta: %w", err)
 	}
 
 	if len(azureResp.Choices) == 0 {
-		return "", fmt.Errorf("resposta vazia do Azure OpenAI")
+		return "", "", fmt.Errorf("resposta vazia do Azure OpenAI")
 	}
 
 	answer := azureResp.Choices[0].Message.Content
 
-	// Salva a pergunta e a resposta no histórico
+	// Salva a pergunta no histórico
 	if err := s.db.AddMessageToChat(chat.ID, "user", question); err != nil {
-		return "", fmt.Errorf("erro ao salvar pergunta no histórico: %w", err)
-	}
-	if err := s.db.AddMessageToChat(chat.ID, "assistant", answer); err != nil {
-		return "", fmt.Errorf("erro ao salvar resposta no histórico: %w", err)
+		return "", "", fmt.Errorf("erro ao salvar pergunta no histórico: %w", err)
 	}
 
-	return answer, nil
+	// Salva a resposta na tabela messages e obtém o hash
+	hash, err := s.db.SaveMessage(answer)
+	if err != nil {
+		return "", "", fmt.Errorf("erro ao salvar mensagem: %w", err)
+	}
+
+	// Adiciona a resposta ao histórico do chat usando o hash já existente
+	if err := s.db.AddMessageToChatWithExistingHash(chat.ID, "assistant", answer, hash); err != nil {
+		return "", "", fmt.Errorf("erro ao salvar resposta no histórico: %w", err)
+	}
+
+	return answer, hash, nil
 }
 
 func (s *AzureOpenAIService) NewChat(userID int64) error {
-	_, err := s.db.CreateNewChat(userID)
-	if err != nil {
+	if err := s.db.NewChat(userID); err != nil {
 		return fmt.Errorf("erro ao criar novo chat: %w", err)
 	}
 	return nil

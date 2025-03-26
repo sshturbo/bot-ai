@@ -8,10 +8,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"bot-ai/config"
 	"bot-ai/database"
+	"bot-ai/models"
 )
 
 type HTTPServer struct {
@@ -52,6 +54,8 @@ func (s *HTTPServer) Start() {
 	http.HandleFunc("/api/messages/", s.corsMiddleware(s.handleGetMessage))
 	http.HandleFunc("/api/messages", s.corsMiddleware(s.handleMessages))
 	http.HandleFunc("/api/chat/new", s.corsMiddleware(s.handleNewChat))
+	http.HandleFunc("/api/chat/", s.corsMiddleware(s.handleGetChatMessages))
+	http.HandleFunc("/api/chats", s.corsMiddleware(s.handleGetChats))
 
 	// Frontend static files handler
 	http.HandleFunc("/", s.corsMiddleware(s.handleFrontend))
@@ -226,4 +230,97 @@ func (s *HTTPServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Novo chat criado com sucesso",
 	})
+}
+
+func (s *HTTPServer) handleGetChatMessages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extrai o identificador do chat do path
+	identifier := strings.TrimPrefix(r.URL.Path, "/api/chat/")
+	if identifier == "" {
+		http.Error(w, "Identificador do chat não fornecido", http.StatusBadRequest)
+		return
+	}
+
+	// Valida autenticação do Telegram
+	initData := r.Header.Get("X-Telegram-Init-Data")
+	if initData == "" {
+		http.Error(w, "Unauthorized: Missing init data", http.StatusUnauthorized)
+		return
+	}
+
+	if !s.authMiddleware.ValidateInitData(initData) {
+		http.Error(w, "Unauthorized: Invalid init data", http.StatusUnauthorized)
+		return
+	}
+
+	var messages []models.ChatMessage
+	var err error
+
+	// Tenta converter para ID numérico
+	id, parseErr := strconv.ParseInt(identifier, 10, 64)
+	if parseErr == nil {
+		// Se for um ID numérico válido
+		messages, err = s.db.GetChatMessages(id)
+		if err != nil {
+			log.Printf("Erro ao buscar mensagens do chat %d: %v", id, err)
+			http.Error(w, "Erro ao buscar mensagens do chat", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(messages)
+		return
+	}
+
+	// Se não for numérico, tenta buscar por hash
+	messages, err = s.db.GetChatMessagesByHash(identifier)
+	if err != nil {
+		log.Printf("Erro ao buscar mensagens do chat com hash %s: %v", identifier, err)
+		http.Error(w, "Erro ao buscar mensagens do chat", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(messages)
+}
+
+func (s *HTTPServer) handleGetChats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Valida autenticação do Telegram
+	initData := r.Header.Get("X-Telegram-Init-Data")
+	if initData == "" {
+		http.Error(w, "Unauthorized: Missing init data", http.StatusUnauthorized)
+		return
+	}
+
+	if !s.authMiddleware.ValidateInitData(initData) {
+		http.Error(w, "Unauthorized: Invalid init data", http.StatusUnauthorized)
+		return
+	}
+
+	// Extrai o user_id do initData
+	userID, err := extractUserID(initData)
+	if err != nil {
+		log.Printf("Erro ao extrair user_id: %v", err)
+		http.Error(w, "Erro ao identificar usuário", http.StatusBadRequest)
+		return
+	}
+
+	// Busca os chats do usuário
+	chats, err := s.db.ListUserChats(userID)
+	if err != nil {
+		log.Printf("Erro ao buscar chats do usuário %d: %v", userID, err)
+		http.Error(w, "Erro ao buscar chats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chats)
 }

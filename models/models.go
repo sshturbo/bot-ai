@@ -6,7 +6,7 @@ import (
 
 // AIService interface comum para serviços de IA
 type AIService interface {
-	AskWithRetry(userID int64, question string) (string, error)
+	AskWithRetry(userID int64, question string) (string, string, error) // Retorna (resposta, hash, erro)
 	NewChat(userID int64) error
 }
 
@@ -15,16 +15,18 @@ type Message struct {
 	ID        int64     `json:"id"`
 	Hash      string    `json:"hash"`
 	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt time.Time `json:"created_at"`
+	Role      string    `json:"role,omitempty"`
 }
 
 // ChatHistory representa o histórico de chat de um usuário
 type ChatHistory struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             int64     `json:"id"`
+	UserID         int64     `json:"user_id"`
+	IsActive       bool      `json:"is_active"`
+	PreviewMessage string    `json:"preview_message"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // ChatMessage representa uma mensagem no histórico

@@ -15,7 +15,8 @@ import {
   Github, 
   MenuIcon,
   MessageSquarePlus,
-  MessageCircle
+  MessageCircle,
+  History
 } from "lucide-react";
 import {
   Sheet,
@@ -43,7 +44,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
       setCopied(true);
       
       // Reproduz som de feedback ao copiar (opcional)
-      const audio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAFhpbmcAAAAPAAAAAwAABPEApaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWl3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d////////////////////////////////////////////AAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQDQAAAAAAAAAAE8SrE2zwAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
+      const audio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAFhpbmcAAAAPAAAAAwAABPEApaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWl3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d////////////////////////////////////////////AAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQDQAAAAAAAAAAE8SrE2zwAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
       audio.volume = 0.2;
       audio.play().catch(e => {
         // Ignora erro caso o navegador bloqueie autoplay
@@ -116,6 +117,7 @@ export default function MessagePage() {
   const navigate = useNavigate();
   const { config, loading: configLoading } = useConfig();
   const [message, setMessage] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tg, setTg] = useState(null);
@@ -125,6 +127,9 @@ export default function MessagePage() {
   const [messageHistory, setMessageHistory] = useState([]);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isNewChat, setIsNewChat] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [newMessage, setNewMessage] = useState('');
+  const [currentChatId, setCurrentChatId] = useState(null);
 
   // Função para buscar histórico de mensagens
   const fetchMessageHistory = async () => {
@@ -137,7 +142,7 @@ export default function MessagePage() {
         headers['X-Telegram-Init-Data'] = tg.initData;
       }
 
-      const response = await fetch(`${config.apiUrl}/api/messages`, { 
+      const response = await fetch(`${config.apiUrl}/api/chats`, { 
         headers,
         mode: 'cors'
       });
@@ -148,16 +153,17 @@ export default function MessagePage() {
       
       const data = await response.json();
       setMessageHistory(data);
-      return data; // Retorna os dados para que possam ser usados diretamente
+      return data;
     } catch (error) {
       console.error('Erro ao buscar histórico:', error);
-      return []; // Retorna um array vazio em caso de erro
+      return [];
     }
   };
 
   // Função para criar novo chat
   const createNewChat = async () => {
     try {
+      setLoading(true);
       const headers = {
         'Content-Type': 'application/json'
       };
@@ -176,28 +182,69 @@ export default function MessagePage() {
         throw new Error('Erro ao criar novo chat');
       }
       
-      // Busca o histórico atualizado de mensagens
-      const messages = await fetchMessageHistory();
+      // Limpa o estado atual
+      setMessage(null);
+      setChatMessages([]);
+      setIsNewChat(true);
+      setError(null);
       
-      if (messages && messages.length > 0) {
-        // Redireciona para a mensagem mais recente
-        navigate(`/message/${messages[0].hash}`);
-        setIsNewChat(false);
-      } else {
-        // Se não houver mensagens, mostra tela de boas-vindas para novo chat
-        setIsNewChat(true);
-        setMessage(null);
-        setLoading(false);
-        setError(null);
-      }
+      // Busca o histórico atualizado de mensagens
+      await fetchMessageHistory();
+      
     } catch (error) {
       console.error('Erro ao criar novo chat:', error);
+      setError('Erro ao criar novo chat: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Função para buscar todas as mensagens de um chat específico
+  const fetchChatMessages = async (chatId) => {
+    try {
+      setLoading(true);
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      const response = await fetch(`${config.apiUrl}/api/chat/${chatId}`, {
+        headers,
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar mensagens do chat');
+      }
+
+      const data = await response.json();
+      setChatMessages(data);
+      setMessage(data.length > 0 ? data[data.length - 1] : null);
+      setCurrentChatId(chatId);
+      
+      // Ativa animação de entrada após carregar o conteúdo
+      setTimeout(() => {
+        setAnimateIn(true);
+      }, 100);
+
+    } catch (error) {
+      console.error('Erro ao buscar mensagens do chat:', error);
+      setError(error.message);
+      setChatMessages([]);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMessageHistory();
-  }, [config, tg]);
+    // Somente busca histórico se o config estiver carregado
+    if (config && !configLoading) {
+      fetchMessageHistory();
+    }
+  }, [config, configLoading, tg]);
 
   useEffect(() => {
     // Verifica preferência de tema salva
@@ -211,60 +258,107 @@ export default function MessagePage() {
       setTg(webApp);
     }
 
-    // Só faz a requisição se a configuração estiver carregada
-    if (configLoading || !config) {
+    // Só faz a requisição se a configuração estiver carregada e tivermos um hash
+    if (configLoading || !config || !hash) {
       return;
     }
 
-    const fetchMessage = async () => {
-      try {
-        setLoading(true);
-        
-        const headers = {
-          'Content-Type': 'application/json'
-        };
-
-        // Adiciona o initData apenas se estivermos em um WebApp do Telegram
-        if (webApp?.initData) {
-          headers['X-Telegram-Init-Data'] = webApp.initData;
-        }
-
-        const baseUrl = config.apiUrl;
-        console.log('Tentando acessar API em:', `${baseUrl}/api/messages/${hash}`);
-        
-        const response = await fetch(`${baseUrl}/api/messages/${hash}`, { 
-          headers,
-          mode: 'cors'
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Erro ao carregar mensagem: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        setMessage(data);
-
-        // Ativa animação de entrada após carregar o conteúdo
-        setTimeout(() => {
-          setAnimateIn(true);
-        }, 100);
-      } catch (error) {
-        console.error('Erro ao buscar mensagem:', error);
-        setError(error.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMessage();
+    // Verifica se estamos na rota /message/ (mensagem única) ou /chat/ (histórico completo)
+    const isMessagePath = window.location.pathname.includes('/message/');
+    
+    if (isMessagePath) {
+      // Se estamos em /message/:hash, busca apenas a mensagem específica
+      fetchSingleMessage(hash);
+    } else {
+      // Se estamos em /chat/:id, busca todas as mensagens do chat
+      fetchChatMessages(hash);
+    }
   }, [hash, config, configLoading]);
 
-  // Aplica o tema do Telegram
-  useEffect(() => {
-    if (tg) {
-      document.documentElement.className = tg.colorScheme;
+  // Função para buscar apenas uma mensagem específica pelo hash
+  const fetchSingleMessage = async (messageHash) => {
+    try {
+      setLoading(true);
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      const response = await fetch(`${config.apiUrl}/api/messages/${messageHash}`, {
+        headers,
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar mensagem');
+      }
+
+      const data = await response.json();
+      setMessage(data);
+      
+      // Ativa animação de entrada após carregar o conteúdo
+      setTimeout(() => {
+        setAnimateIn(true);
+      }, 100);
+
+    } catch (error) {
+      console.error('Erro ao buscar mensagem:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
     }
-  }, [tg]);
+  };
+
+  // Carrega o histórico completo quando o usuário clica em "Ver Histórico"
+  const handleShowHistory = async () => {
+    // Se já temos mensagens do chat carregadas, apenas alterne a visualização
+    if (chatMessages.length > 0) {
+      setShowHistory(!showHistory);
+      return;
+    }
+
+    // Verifica se config está disponível
+    if (!config || configLoading) {
+      console.error("Configuração não disponível ainda");
+      setError("Configuração não carregada. Por favor, recarregue a página.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      // Primeiro precisamos descobrir o chat_id a partir do hash da mensagem
+      const response = await fetch(`${config.apiUrl}/api/chat/${message.hash}`, {
+        headers,
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar histórico do chat');
+      }
+
+      const data = await response.json();
+      setChatMessages(data);
+      setShowHistory(true);
+      
+    } catch (error) {
+      console.error('Erro ao buscar histórico do chat:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const copyFullMessage = async () => {
     try {
@@ -272,7 +366,7 @@ export default function MessagePage() {
       setCopied(true);
       
       // Reproduz som de feedback ao copiar
-      const audio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAFhpbmcAAAAPAAAAAwAABPEApaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWl3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d////////////////////////////////////////////AAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQDQAAAAAAAAAAE8SrE2zwAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
+      const audio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAFhpbmcAAAAPAAAAAwAABPEApaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWl3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d////////////////////////////////////////////AAAAAExhdmM1OC4xMwAAAAAAAAAAAAAAACQDQAAAAAAAAAAE8SrE2zwAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
       audio.volume = 0.2;
       audio.play().catch(e => {
         console.log("Reprodução de áudio bloqueada");
@@ -323,6 +417,36 @@ export default function MessagePage() {
     }
   };
 
+  const handleNewMessage = async () => {
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      const response = await fetch(`${config.apiUrl}/api/chat/new`, {
+        method: 'POST',
+        headers,
+        mode: 'cors',
+        body: JSON.stringify({ content: newMessage })
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao enviar mensagem');
+      }
+
+      const data = await response.json();
+      setChatMessages([...chatMessages, data]);
+      setNewMessage('');
+      setIsNewChat(false);
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar Desktop */}
@@ -342,16 +466,19 @@ export default function MessagePage() {
         </div>
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-2 p-4">
-            {messageHistory.map((msg) => (
+            {messageHistory.map((chat) => (
               <Button
-                key={msg.hash}
-                variant={msg.hash === hash ? 'secondary' : 'ghost'}
+                key={chat.id}
+                variant={chat.id === currentChatId ? 'secondary' : 'ghost'}
                 className="w-full justify-start"
-                onClick={() => navigate(`/message/${msg.hash}`)}
+                onClick={() => {
+                  navigate(`/chat/${chat.id}`);
+                  setIsSheetOpen(false);
+                }}
               >
                 <MessageCircle className="mr-2 h-4 w-4" />
                 <div className="truncate text-left">
-                  {msg.content.substring(0, 30)}...
+                  {chat.preview_message || "Nova conversa"}
                 </div>
               </Button>
             ))}
@@ -376,7 +503,10 @@ export default function MessagePage() {
                   </SheetHeader>
                   <div className="py-4">
                     <Button 
-                      onClick={createNewChat} 
+                      onClick={() => {
+                        createNewChat();
+                        setIsSheetOpen(false);
+                      }} 
                       className="w-full justify-start"
                       variant="outline"
                     >
@@ -385,22 +515,38 @@ export default function MessagePage() {
                     </Button>
                   </div>
                   <div className="space-y-2">
-                    {messageHistory.map((msg) => (
-                      <Button
-                        key={msg.hash}
-                        variant={msg.hash === hash ? 'secondary' : 'ghost'}
-                        className="w-full justify-start"
-                        onClick={() => {
-                          navigate(`/message/${msg.hash}`);
-                          setIsSheetOpen(false);
-                        }}
-                      >
-                        <MessageCircle className="mr-2 h-4 w-4" />
-                        <div className="truncate text-left">
-                          {msg.content.substring(0, 30)}...
+                    {loading ? (
+                      // Mostrar skeleton loading enquanto carrega
+                      Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="animate-pulse flex space-x-4 p-2">
+                          <div className="h-4 w-4 rounded-full bg-muted"></div>
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-muted rounded"></div>
+                          </div>
                         </div>
-                      </Button>
-                    ))}
+                      ))
+                    ) : messageHistory.length > 0 ? (
+                      messageHistory.map((chat) => (
+                        <Button
+                          key={chat.id}
+                          variant={chat.id === currentChatId ? 'secondary' : 'ghost'}
+                          className="w-full justify-start"
+                          onClick={() => {
+                            navigate(`/chat/${chat.id}`);
+                            setIsSheetOpen(false);
+                          }}
+                        >
+                          <MessageCircle className="mr-2 h-4 w-4" />
+                          <div className="truncate text-left">
+                            {chat.preview_message || "Nova conversa"}
+                          </div>
+                        </Button>
+                      ))
+                    ) : (
+                      <div className="text-center py-4 text-muted-foreground">
+                        Nenhuma conversa encontrada
+                      </div>
+                    )}
                   </div>
                 </SheetContent>
               </Sheet>
@@ -455,7 +601,7 @@ export default function MessagePage() {
         <main className="container mx-auto px-4 py-8">
           {loading ? (
             <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+              <Card className="w-full max-w-4xl animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <div className="h-12 w-12 rounded-full border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
                   <p className="mt-4 text-muted-foreground">Carregando mensagem...</p>
@@ -464,118 +610,174 @@ export default function MessagePage() {
             </div>
           ) : error ? (
             <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-              <Card className="w-full max-w-md border-destructive animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+              <Card className="w-full max-w-4xl border-destructive animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
                 <CardHeader>
                   <CardTitle className="text-destructive">Erro</CardTitle>
                   <CardDescription>Não foi possível carregar a mensagem</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-destructive">{error}</p>
+                  <p className="text-destructive">
+                    {error?.message || error?.toString() || "Ocorreu um erro ao carregar os dados"}
+                  </p>
                 </CardContent>
               </Card>
             </div>
           ) : isNewChat ? (
             <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+              <Card className="w-full max-w-4xl animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
                 <CardContent className="p-6">
-                  <div className="text-center">
-                    <h2 className="text-xl font-bold mb-4">Bem-vindo ao Orbi AI!</h2>
-                    <p className="text-muted-foreground">Inicie uma nova conversa para começar.</p>
+                  <div className="text-center space-y-6">
+                    <div>
+                      <h2 className="text-xl font-bold mb-4">Bem-vindo ao Orbi AI!</h2>
+                      <p className="text-muted-foreground">Você está em um novo chat.</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
           ) : !message ? (
             <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+              <Card className="w-full max-w-4xl animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
                 <CardContent className="p-6">
                   <div className="text-center">Mensagem não encontrada</div>
                 </CardContent>
               </Card>
             </div>
           ) : (
-            <Card 
-              className={`max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out`}
-              style={{
-                boxShadow: isFullscreen ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
-              }}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center">
-                    <div className="h-8 w-1 bg-primary rounded-full mr-3 animate-pulse"></div>
-                    <CardTitle className="text-xl font-medium bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
-                      Resposta do Orbi
-                    </CardTitle>
+            <div className="space-y-6">
+              {/* Card principal que mostrará a resposta da IA ou o histórico do chat */}
+              <Card 
+                className={`max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out`}
+                style={{
+                  boxShadow: isFullscreen ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
+                }}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center">
+                      <div className="h-8 w-1 bg-primary rounded-full mr-3 animate-pulse"></div>
+                      <CardTitle className="text-xl font-medium bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
+                        {showHistory ? "Histórico do Chat" : "Resposta do Orbi"}
+                      </CardTitle>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!showHistory && (
+                        <>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={copyFullMessage}
+                                  className={`h-8 transition-all duration-200 ${copied ? 'bg-green-100 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
+                                >
+                                  {copied ? 
+                                    <Check className="mr-1 h-4 w-4 text-green-500 animate-in zoom-in-50 duration-200" /> : 
+                                    <Copy className="mr-1 h-4 w-4" />
+                                  }
+                                  {copied ? 'Copiado' : 'Copiar'}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
+                                Copiar todo o conteúdo
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={shareMessage}
+                                  className="h-8 transition-all duration-200"
+                                >
+                                  <Share2 className="mr-1 h-4 w-4" />
+                                  Compartilhar
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
+                                Compartilhar esta resposta
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </>
+                      )}
+                      
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={handleShowHistory}
+                              className="h-8 transition-all duration-200"
+                            >
+                              <History className="mr-1 h-4 w-4" />
+                              {showHistory ? "Ver Resposta" : "Ver Histórico"}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
+                            {showHistory ? "Voltar para a resposta" : "Ver o histórico completo do chat"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={copyFullMessage}
-                            className={`h-8 transition-all duration-200 ${copied ? 'bg-green-100 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
+                </CardHeader>
+                <CardContent className="pt-2">
+                  {!showHistory ? (
+                    // Mostra apenas a resposta da IA selecionada
+                    <div className="prose prose-slate dark:prose-invert max-w-none">
+                      <ReactMarkdown components={{ code: CodeBlock }}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    // Mostra o histórico completo do chat com mensagens alinhadas em lados diferentes
+                    <div className="space-y-6">
+                      {chatMessages.map((msg, index) => (
+                        <div 
+                          key={index} 
+                          className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div 
+                            className={`rounded-lg p-4 max-w-[80%] ${
+                              msg.role === 'user' 
+                                ? 'bg-primary/10 border border-primary/20' 
+                                : 'bg-muted/50 border border-muted'
+                            }`}
                           >
-                            {copied ? 
-                              <Check className="mr-1 h-4 w-4 text-green-500 animate-in zoom-in-50 duration-200" /> : 
-                              <Copy className="mr-1 h-4 w-4" />
-                            }
-                            {copied ? 'Copiado' : 'Copiar'}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
-                          Copiar todo o conteúdo
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={shareMessage}
-                            className="h-8 transition-all duration-200"
-                          >
-                            <Share2 className="mr-1 h-4 w-4" />
-                            Compartilhar
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
-                          Compartilhar esta resposta
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <div className="prose prose-slate dark:prose-invert max-w-none">
-                  <ReactMarkdown
-                    components={{
-                      code: CodeBlock
-                    }}
+                            <div className="mb-1 text-xs font-medium">
+                              {msg.role === 'user' ? 'Você' : 'Orbi AI'}
+                            </div>
+                            <div className="prose prose-slate dark:prose-invert max-w-none">
+                              <ReactMarkdown components={{ code: CodeBlock }}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+                <CardFooter className="border-t pt-4 text-xs text-muted-foreground flex flex-col sm:flex-row justify-between items-center gap-2">
+                  <span>Gerado em: {new Date(message.createdAt).toLocaleString()}</span>
+                  <a 
+                    href={`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Veja esta resposta do Bot AI!')}`}
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors duration-200"
                   >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-              </CardContent>
-              <CardFooter className="border-t pt-4 text-xs text-muted-foreground flex flex-col sm:flex-row justify-between items-center gap-2">
-                <span>Gerado em: {new Date(message.createdAt).toLocaleString()}</span>
-                <a 
-                  href={`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Veja esta resposta do Bot AI!')}`}
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors duration-200"
-                >
-                  <ExternalLink className="h-3 w-3 mr-1" />
-                  Abrir no Telegram
-                </a>
-              </CardFooter>
-            </Card>
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    Abrir no Telegram
+                  </a>
+                </CardFooter>
+              </Card>
+            </div>
           )}
         </main>
       </div>
