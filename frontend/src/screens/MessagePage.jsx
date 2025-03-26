@@ -1,10 +1,29 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useConfig } from '@/hooks/useConfig';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Copy, Share2, Check, Clipboard, ExternalLink, Maximize2, Minimize2, Github } from "lucide-react";
+import { 
+  Copy, 
+  Share2, 
+  Check, 
+  Clipboard, 
+  ExternalLink, 
+  Maximize2, 
+  Minimize2, 
+  Github, 
+  MenuIcon,
+  MessageSquarePlus,
+  MessageCircle
+} from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -94,6 +113,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
 
 export default function MessagePage() {
   const { hash } = useParams();
+  const navigate = useNavigate();
   const { config, loading: configLoading } = useConfig();
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +122,82 @@ export default function MessagePage() {
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
+  const [messageHistory, setMessageHistory] = useState([]);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isNewChat, setIsNewChat] = useState(false);
+
+  // Função para buscar histórico de mensagens
+  const fetchMessageHistory = async () => {
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      const response = await fetch(`${config.apiUrl}/api/messages`, { 
+        headers,
+        mode: 'cors'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Erro ao carregar histórico');
+      }
+      
+      const data = await response.json();
+      setMessageHistory(data);
+      return data; // Retorna os dados para que possam ser usados diretamente
+    } catch (error) {
+      console.error('Erro ao buscar histórico:', error);
+      return []; // Retorna um array vazio em caso de erro
+    }
+  };
+
+  // Função para criar novo chat
+  const createNewChat = async () => {
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (tg?.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+      }
+
+      const response = await fetch(`${config.apiUrl}/api/chat/new`, {
+        method: 'POST',
+        headers,
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao criar novo chat');
+      }
+      
+      // Busca o histórico atualizado de mensagens
+      const messages = await fetchMessageHistory();
+      
+      if (messages && messages.length > 0) {
+        // Redireciona para a mensagem mais recente
+        navigate(`/message/${messages[0].hash}`);
+        setIsNewChat(false);
+      } else {
+        // Se não houver mensagens, mostra tela de boas-vindas para novo chat
+        setIsNewChat(true);
+        setMessage(null);
+        setLoading(false);
+        setError(null);
+      }
+    } catch (error) {
+      console.error('Erro ao criar novo chat:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchMessageHistory();
+  }, [config, tg]);
 
   useEffect(() => {
     // Verifica preferência de tema salva
@@ -228,174 +324,261 @@ export default function MessagePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Barra de navegação */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
-              Orbi AI
-            </h1>
-          </div>
-          <div className="flex items-center space-x-4">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    onClick={toggleFullscreen}
-                    className="h-8 w-8 transition-all duration-200"
-                  >
-                    {isFullscreen ? 
-                      <Minimize2 className="h-4 w-4" /> : 
-                      <Maximize2 className="h-4 w-4" />
-                    }
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isFullscreen ? 'Sair do modo tela cheia' : 'Modo tela cheia'}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <a
-                    href="https://github.com/sshturbo/bot-ai"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center hover:text-primary transition-colors"
-                  >
-                    <Github className="h-5 w-5" />
-                  </a>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Ver no GitHub
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <ThemeSwitcher />
+    <div className="min-h-screen bg-background flex">
+      {/* Sidebar Desktop */}
+      <aside className="hidden lg:flex flex-col w-[300px] border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 h-screen sticky top-0">
+        <div className="p-4">
+          <h2 className="text-xl font-bold bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent mb-4">
+            Orbi AI
+          </h2>
+          <Button 
+            onClick={createNewChat} 
+            className="w-full justify-start"
+            variant="outline"
+          >
+            <MessageSquarePlus className="mr-2 h-4 w-4" />
+            Novo Chat
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="space-y-2 p-4">
+            {messageHistory.map((msg) => (
+              <Button
+                key={msg.hash}
+                variant={msg.hash === hash ? 'secondary' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => navigate(`/message/${msg.hash}`)}
+              >
+                <MessageCircle className="mr-2 h-4 w-4" />
+                <div className="truncate text-left">
+                  {msg.content.substring(0, 30)}...
+                </div>
+              </Button>
+            ))}
           </div>
         </div>
-      </nav>
+      </aside>
 
-      {/* Conteúdo principal */}
-      <main className="container mx-auto px-4 pt-24 pb-8">
-        {loading ? (
-          <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-            <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="h-12 w-12 rounded-full border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
-                <p className="mt-4 text-muted-foreground">Carregando mensagem...</p>
-              </CardContent>
-            </Card>
+      <div className="flex-1">
+        {/* Barra de navegação */}
+        <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="lg:hidden">
+                    <MenuIcon className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-[300px] sm:w-[400px]">
+                  <SheetHeader>
+                    <SheetTitle>Conversas</SheetTitle>
+                  </SheetHeader>
+                  <div className="py-4">
+                    <Button 
+                      onClick={createNewChat} 
+                      className="w-full justify-start"
+                      variant="outline"
+                    >
+                      <MessageSquarePlus className="mr-2 h-4 w-4" />
+                      Novo Chat
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {messageHistory.map((msg) => (
+                      <Button
+                        key={msg.hash}
+                        variant={msg.hash === hash ? 'secondary' : 'ghost'}
+                        className="w-full justify-start"
+                        onClick={() => {
+                          navigate(`/message/${msg.hash}`);
+                          setIsSheetOpen(false);
+                        }}
+                      >
+                        <MessageCircle className="mr-2 h-4 w-4" />
+                        <div className="truncate text-left">
+                          {msg.content.substring(0, 30)}...
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                </SheetContent>
+              </Sheet>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent lg:hidden">
+                Orbi AI
+              </h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={toggleFullscreen}
+                      className="h-8 w-8 transition-all duration-200"
+                    >
+                      {isFullscreen ? 
+                        <Minimize2 className="h-4 w-4" /> : 
+                        <Maximize2 className="h-4 w-4" />
+                      }
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isFullscreen ? 'Sair do modo tela cheia' : 'Modo tela cheia'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href="https://github.com/sshturbo/bot-ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center hover:text-primary transition-colors"
+                    >
+                      <Github className="h-5 w-5" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Ver no GitHub
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <ThemeSwitcher />
+            </div>
           </div>
-        ) : error ? (
-          <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-            <Card className="w-full max-w-md border-destructive animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
-              <CardHeader>
-                <CardTitle className="text-destructive">Erro</CardTitle>
-                <CardDescription>Não foi possível carregar a mensagem</CardDescription>
+        </nav>
+
+        {/* Conteúdo principal */}
+        <main className="container mx-auto px-4 py-8">
+          {loading ? (
+            <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
+              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+                <CardContent className="flex flex-col items-center justify-center py-16">
+                  <div className="h-12 w-12 rounded-full border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
+                  <p className="mt-4 text-muted-foreground">Carregando mensagem...</p>
+                </CardContent>
+              </Card>
+            </div>
+          ) : error ? (
+            <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
+              <Card className="w-full max-w-md border-destructive animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+                <CardHeader>
+                  <CardTitle className="text-destructive">Erro</CardTitle>
+                  <CardDescription>Não foi possível carregar a mensagem</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-destructive">{error}</p>
+                </CardContent>
+              </Card>
+            </div>
+          ) : isNewChat ? (
+            <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
+              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+                <CardContent className="p-6">
+                  <div className="text-center">
+                    <h2 className="text-xl font-bold mb-4">Bem-vindo ao Orbi AI!</h2>
+                    <p className="text-muted-foreground">Inicie uma nova conversa para começar.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : !message ? (
+            <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
+              <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
+                <CardContent className="p-6">
+                  <div className="text-center">Mensagem não encontrada</div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <Card 
+              className={`max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out`}
+              style={{
+                boxShadow: isFullscreen ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
+              }}
+            >
+              <CardHeader className="pb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center">
+                    <div className="h-8 w-1 bg-primary rounded-full mr-3 animate-pulse"></div>
+                    <CardTitle className="text-xl font-medium bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
+                      Resposta do Orbi
+                    </CardTitle>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={copyFullMessage}
+                            className={`h-8 transition-all duration-200 ${copied ? 'bg-green-100 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
+                          >
+                            {copied ? 
+                              <Check className="mr-1 h-4 w-4 text-green-500 animate-in zoom-in-50 duration-200" /> : 
+                              <Copy className="mr-1 h-4 w-4" />
+                            }
+                            {copied ? 'Copiado' : 'Copiar'}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
+                          Copiar todo o conteúdo
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={shareMessage}
+                            className="h-8 transition-all duration-200"
+                          >
+                            <Share2 className="mr-1 h-4 w-4" />
+                            Compartilhar
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
+                          Compartilhar esta resposta
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
-                <p className="text-destructive">{error}</p>
-              </CardContent>
-            </Card>
-          </div>
-        ) : !message ? (
-          <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
-            <Card className="w-full max-w-md animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
-              <CardContent className="p-6">
-                <div className="text-center">Mensagem não encontrada</div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <Card 
-            className={`max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out`}
-            style={{
-              boxShadow: isFullscreen ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
-            }}
-          >
-            <CardHeader className="pb-2">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center">
-                  <div className="h-8 w-1 bg-primary rounded-full mr-3 animate-pulse"></div>
-                  <CardTitle className="text-xl font-medium bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
-                    Resposta do Orbi
-                  </CardTitle>
+              <CardContent className="pt-2">
+                <div className="prose prose-slate dark:prose-invert max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      code: CodeBlock
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={copyFullMessage}
-                          className={`h-8 transition-all duration-200 ${copied ? 'bg-green-100 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
-                        >
-                          {copied ? 
-                            <Check className="mr-1 h-4 w-4 text-green-500 animate-in zoom-in-50 duration-200" /> : 
-                            <Copy className="mr-1 h-4 w-4" />
-                          }
-                          {copied ? 'Copiado' : 'Copiar'}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
-                        Copiar todo o conteúdo
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={shareMessage}
-                          className="h-8 transition-all duration-200"
-                        >
-                          <Share2 className="mr-1 h-4 w-4" />
-                          Compartilhar
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="animate-in fade-in-50 zoom-in-95 duration-200">
-                        Compartilhar esta resposta
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-              <div className="prose prose-slate dark:prose-invert max-w-none">
-                <ReactMarkdown
-                  components={{
-                    code: CodeBlock
-                  }}
+              </CardContent>
+              <CardFooter className="border-t pt-4 text-xs text-muted-foreground flex flex-col sm:flex-row justify-between items-center gap-2">
+                <span>Gerado em: {new Date(message.createdAt).toLocaleString()}</span>
+                <a 
+                  href={`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Veja esta resposta do Bot AI!')}`}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors duration-200"
                 >
-                  {message.content}
-                </ReactMarkdown>
-              </div>
-            </CardContent>
-            <CardFooter className="border-t pt-4 text-xs text-muted-foreground flex flex-col sm:flex-row justify-between items-center gap-2">
-              <span>Gerado em: {new Date(message.createdAt).toLocaleString()}</span>
-              <a 
-                href={`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Veja esta resposta do Bot AI!')}`}
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center text-xs text-muted-foreground hover:text-primary transition-colors duration-200"
-              >
-                <ExternalLink className="h-3 w-3 mr-1" />
-                Abrir no Telegram
-              </a>
-            </CardFooter>
-          </Card>
-        )}
-      </main>
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  Abrir no Telegram
+                </a>
+              </CardFooter>
+            </Card>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

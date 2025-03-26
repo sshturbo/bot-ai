@@ -165,7 +165,27 @@ func (d *Database) CreateNewChat(userID int64) (*models.ChatHistory, error) {
 
 // AddMessageToChat adiciona uma mensagem ao histórico do chat
 func (d *Database) AddMessageToChat(chatID int64, role, content string) error {
-	_, err := d.db.Exec(`
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Primeiro salva na tabela messages e gera um hash
+	hasher := sha256.New()
+	hasher.Write([]byte(content + time.Now().String()))
+	hash := hex.EncodeToString(hasher.Sum(nil))[:8]
+
+	_, err = tx.Exec(
+		"INSERT INTO messages (hash, content) VALUES (?, ?)",
+		hash, content,
+	)
+	if err != nil {
+		return fmt.Errorf("erro ao salvar mensagem: %w", err)
+	}
+
+	// Depois salva na tabela chat_messages
+	_, err = tx.Exec(`
 		INSERT INTO chat_messages (chat_history_id, role, content) 
 		VALUES (?, ?, ?)`,
 		chatID, role, content,
@@ -175,9 +195,13 @@ func (d *Database) AddMessageToChat(chatID int64, role, content string) error {
 	}
 
 	// Atualiza o timestamp do chat
-	_, err = d.db.Exec("UPDATE chat_history SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+	_, err = tx.Exec("UPDATE chat_history SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
 	if err != nil {
 		return fmt.Errorf("erro ao atualizar timestamp do chat: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("erro ao confirmar transação: %w", err)
 	}
 
 	return nil
@@ -278,6 +302,49 @@ func (d *Database) ScheduleCleanup(cleanupInterval, retentionPeriod time.Duratio
 
 	log.Printf("Limpeza automática de mensagens agendada: intervalo=%s, retenção=%s",
 		cleanupInterval, retentionPeriod)
+}
+
+// GetMessagesByUser recupera todas as mensagens associadas a um usuário
+func (d *Database) GetMessagesByUser(userID int64) ([]models.Message, error) {
+	rows, err := d.db.Query(`
+		SELECT DISTINCT m.id, m.hash, m.content, m.created_at 
+		FROM chat_history ch
+		JOIN chat_messages cm ON cm.chat_history_id = ch.id
+		JOIN messages m ON m.content = cm.content
+		WHERE ch.user_id = ?
+		ORDER BY m.created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar mensagens do usuário: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []models.Message
+	for rows.Next() {
+		var msg models.Message
+		err := rows.Scan(&msg.ID, &msg.Hash, &msg.Content, &msg.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao ler mensagem: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	// Se não encontrou mensagens, retorna uma lista vazia em vez de erro
+	if len(messages) == 0 {
+		return []models.Message{}, nil
+	}
+
+	return messages, nil
+}
+
+// NewChat cria um novo chat para o usuário
+func (d *Database) NewChat(userID int64) error {
+	_, err := d.CreateNewChat(userID)
+	if err != nil {
+		return fmt.Errorf("erro ao criar novo chat: %w", err)
+	}
+	return nil
 }
 
 func (d *Database) Close() error {
