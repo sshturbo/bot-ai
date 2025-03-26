@@ -27,6 +27,13 @@ type Config struct {
 	// Seleção do serviço de IA
 	AIService string
 
+	// Configurações do Gemini
+	GeminiModel           string
+	GeminiTemperature     float64
+	GeminiTopK            int
+	GeminiTopP            float64
+	GeminiMaxOutputTokens int
+
 	// Azure OpenAI Configuration
 	AzureOpenAIKey         string
 	AzureOpenAIEndpoint    string
@@ -68,6 +75,13 @@ func LoadConfig() *Config {
 
 		// Seleção do serviço de IA (padrão: google)
 		AIService: strings.ToLower(getEnvWithDefault("AI_SERVICE", "google")),
+
+		// Configurações do Gemini
+		GeminiModel:           getEnvWithDefault("GEMINI_MODEL", "gemini-2.5-pro-exp-03-25"),
+		GeminiTemperature:     getEnvAsFloat("GEMINI_TEMPERATURE", 1.0),
+		GeminiTopK:            getEnvAsInt("GEMINI_TOP_K", 64),
+		GeminiTopP:            getEnvAsFloat("GEMINI_TOP_P", 0.95),
+		GeminiMaxOutputTokens: getEnvAsInt("GEMINI_MAX_OUTPUT_TOKENS", 65536),
 
 		// Azure OpenAI settings
 		AzureOpenAIKey:         os.Getenv("AZURE_OPENAI_API_KEY"),

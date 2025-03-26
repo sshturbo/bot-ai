@@ -1,16 +1,27 @@
+# Configurações do Telegram
 TELEGRAM_BOT_TOKEN=
-GEMINI_API_KEY=
+
+# Configurações do servidor
+# SERVER_ADDR deve ser o endereço do servidor, incluindo a porta
 WEBAPP_URL=
-SERVER_ADDR=localhost:9000
+SERVER_ADDR=localhost:8080
 MESSAGE_RETENTION_DAYS=1
 CLEANUP_INTERVAL_HOURS=12
 
 # Seleção do serviço de IA (google ou azure)
-AI_SERVICE=azure
+AI_SERVICE=google
 
-# Azure OpenAI Configuration
+# Configurações do Gemini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-pro-exp-03-25
+GEMINI_TEMPERATURE=1.0
+GEMINI_TOP_K=64
+GEMINI_TOP_P=0.95
+GEMINI_MAX_OUTPUT_TOKENS=65536
+
+# Configurações do Azure OpenAI
 AZURE_OPENAI_API_KEY=
 AZURE_OPENAI_ENDPOINT=https://models.inference.ai.azure.com
-AZURE_OPENAI_MODEL=gpt-4o
+AZURE_OPENAI_MODEL=gpt-4o-mini
 AZURE_OPENAI_MAX_TOKENS=4096
 AZURE_OPENAI_TEMPERATURE=1
