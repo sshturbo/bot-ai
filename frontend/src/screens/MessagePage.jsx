@@ -59,7 +59,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
 
   return !inline && match ? (
     <div 
-      className="relative group my-4 rounded-md overflow-hidden transition-all duration-200 ease-in-out"
+      className="relative group my-4 rounded-md overflow-hidden transition-all duration-200 ease-in-out w-full"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -68,7 +68,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
         transition: 'transform 0.2s ease, box-shadow 0.2s ease'
       }}
     >
-      <div className="absolute right-2 top-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+      <div className="absolute right-2 top-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -90,23 +90,33 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
           </Tooltip>
         </TooltipProvider>
       </div>
-      <div className="absolute left-4 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+      <div className="absolute left-4 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
         <span className="px-2 py-1 rounded-md text-xs font-mono bg-gray-700/50 text-gray-200">
           {match[1].toUpperCase()}
         </span>
       </div>
-      <SyntaxHighlighter
-        {...props}
-        style={isDarkMode ? vscDarkPlus : oneLight}
-        language={match[1]}
-        PreTag="div"
-        className="!rounded-md transition-all duration-300"
-      >
-        {code}
-      </SyntaxHighlighter>
+      <div className="overflow-x-auto w-full">
+        <SyntaxHighlighter
+          {...props}
+          style={isDarkMode ? vscDarkPlus : oneLight}
+          language={match[1]}
+          PreTag="div"
+          className="!rounded-md transition-all duration-300"
+          customStyle={{
+            margin: 0,
+            padding: '1rem',
+            fontSize: '0.875rem',
+          }}
+          showLineNumbers={true}
+          wrapLines={true}
+          wrapLongLines={true}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   ) : (
-    <code {...props} className={`${className} rounded-sm px-1 py-0.5 bg-gray-200 dark:bg-gray-800 transition-colors duration-200`}>
+    <code {...props} className={`${className} rounded-sm px-1 py-0.5 bg-gray-200 dark:bg-gray-800 transition-colors duration-200 break-all whitespace-pre-wrap`}>
       {children}
     </code>
   );
@@ -598,7 +608,7 @@ export default function MessagePage() {
         </nav>
 
         {/* Conteúdo principal */}
-        <main className="container mx-auto px-4 py-8">
+        <main className="container mx-auto px-2 sm:px-4 py-8 w-full max-w-full overflow-hidden">
           {loading ? (
             <div className="flex justify-center items-center min-h-[calc(100vh-6rem)]">
               <Card className="w-full max-w-4xl animate-in fade-in-50 slide-in-from-bottom-8 duration-500">
@@ -644,10 +654,10 @@ export default function MessagePage() {
               </Card>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 overflow-hidden">
               {/* Card principal que mostrará a resposta da IA ou o histórico do chat */}
               <Card 
-                className={`max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out`}
+                className={`w-full sm:max-w-4xl mx-auto ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} transition-all duration-500 ease-out overflow-hidden`}
                 style={{
                   boxShadow: isFullscreen ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
                 }}
@@ -727,13 +737,27 @@ export default function MessagePage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-2">
+                <CardContent className="pt-2 overflow-hidden">
                   {!showHistory ? (
                     // Mostra apenas a resposta da IA selecionada
-                    <div className="prose prose-slate dark:prose-invert max-w-none">
-                      <ReactMarkdown components={{ code: CodeBlock }}>
-                        {message.content}
-                      </ReactMarkdown>
+                    <div className="prose prose-slate dark:prose-invert max-w-none overflow-hidden">
+                      <div className="whitespace-pre-wrap break-words">
+                        <ReactMarkdown 
+                          components={{ 
+                            code: CodeBlock,
+                            // Força quebra de linha em textos longos
+                            p: ({children}) => (
+                              <p className="whitespace-pre-wrap break-words">{children}</p>
+                            ),
+                            // Força quebra de linha em links longos
+                            a: ({children, href}) => (
+                              <a href={href} className="break-all hover:text-primary transition-colors duration-200">{children}</a>
+                            )
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   ) : (
                     // Mostra o histórico completo do chat com mensagens alinhadas em lados diferentes
@@ -744,7 +768,7 @@ export default function MessagePage() {
                           className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
                           <div 
-                            className={`rounded-lg p-4 max-w-[80%] ${
+                            className={`rounded-lg p-3 sm:p-4 max-w-[95%] sm:max-w-[85%] md:max-w-[80%] ${
                               msg.role === 'user' 
                                 ? 'bg-primary/10 border border-primary/20' 
                                 : 'bg-muted/50 border border-muted'
@@ -753,10 +777,22 @@ export default function MessagePage() {
                             <div className="mb-1 text-xs font-medium">
                               {msg.role === 'user' ? 'Você' : 'Orbi AI'}
                             </div>
-                            <div className="prose prose-slate dark:prose-invert max-w-none">
-                              <ReactMarkdown components={{ code: CodeBlock }}>
-                                {msg.content}
-                              </ReactMarkdown>
+                            <div className="prose prose-slate dark:prose-invert max-w-none break-words">
+                              <div className="whitespace-pre-wrap">
+                                <ReactMarkdown 
+                                  components={{ 
+                                    code: CodeBlock,
+                                    p: ({children}) => (
+                                      <p className="whitespace-pre-wrap break-words">{children}</p>
+                                    ),
+                                    a: ({children, href}) => (
+                                      <a href={href} className="break-all hover:text-primary transition-colors duration-200">{children}</a>
+                                    )
+                                  }}
+                                >
+                                  {msg.content}
+                                </ReactMarkdown>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -765,7 +801,7 @@ export default function MessagePage() {
                   )}
                 </CardContent>
                 <CardFooter className="border-t pt-4 text-xs text-muted-foreground flex flex-col sm:flex-row justify-between items-center gap-2">
-                  <span>Gerado em: {new Date(message.createdAt).toLocaleString()}</span>
+                  <span>Gerado em: {message.createdAt ? new Date(message.createdAt).toLocaleString() : 'Data não disponível'}</span>
                   <a 
                     href={`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Veja esta resposta do Bot AI!')}`}
                     target="_blank" 
